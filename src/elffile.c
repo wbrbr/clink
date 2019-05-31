@@ -37,16 +37,21 @@ ELFFile file_init(const char* path)
 
     uint64_t symbols_size;
     Elf64_Sym* symbols_arr = (Elf64_Sym*)file_get_section(&file, ".symtab", &symbols_size);
-    uint64_t symbols_num = symbols_size / sizeof(Elf64_Sym);
+    file.symbols_num = symbols_size / sizeof(Elf64_Sym);
 
-    file.symbols = (Symbol*)malloc(symbols_num*sizeof(Symbol));
+    file.symbols = (Symbol*)malloc(file.symbols_num*sizeof(Symbol));
 
-    for (uint64_t i = 0; i < symbols_num; i++)
+    for (int i = 1; i < file.symbols_num; i++)
     {
         file.symbols[i].name = strings + symbols_arr[i].st_name;
-        file.symbols[i].value = symbols_arr[i].st_value;
-        file.symbols[i].scope = symbols_arr[i].st_info >> 4;
-        file.symbols[i].section = file.sections+symbols_arr[i].st_shndx; // TODO: SHN_ABS
+        if (symbols_arr[i].st_shndx == SHN_UNDEF) {
+            file.symbols[i].undef = true;
+        } else {
+            file.symbols[i].undef = false;
+            file.symbols[i].value = symbols_arr[i].st_value;
+            file.symbols[i].scope = symbols_arr[i].st_info >> 4;
+            file.symbols[i].section = file.sections+symbols_arr[i].st_shndx; // TODO: SHN_ABS
+        }
     }
 
     return file;
@@ -105,6 +110,7 @@ void file_do_rela(ELFFile* file, int i, char* section)
     unsigned char* buf = (unsigned char*)file_get_section(file, section, NULL);
 
     uint32_t val;
+    uint32_t P;
     uint64_t val64;
 
     for (uint64_t j = 0; j < num; j++)
@@ -112,21 +118,26 @@ void file_do_rela(ELFFile* file, int i, char* section)
         Symbol sym = file->symbols[ELF64_R_SYM(relocs[j].r_info)];
 
         switch(ELF64_R_TYPE(relocs[j].r_info)) {
-            case 1: // R_X86_64_64
+            case R_X86_64_64: // R_X86_64_64
                 // printf("Segment: %lx\nSection: %lx\nSymbol: %lx\nAddend: %lx\n", sym.section->segment->addr, sym.section->new_offset, sym.value, relocs[j].r_addend);
                 val64 = sym.section->segment->addr + sym.section->new_offset + sym.value + relocs[j].r_addend;
                 memcpy(buf+relocs[j].r_offset, &val64, 8);
                 break;
-            case 11: // R_X86_64_32S
+            case R_X86_64_32S: // R_X86_64_32S
                 // sign extension
                 val = sym.section->segment->addr + sym.section->new_offset + sym.value + relocs[j].r_addend;
                 assert(val == 0x100000+sizeof(Elf64_Ehdr)+2*sizeof(Elf64_Phdr));
                 // val = 0x100000+sizeof(Elf64_Ehdr)+2*sizeof(Elf64_Phdr);
                 memcpy(buf+relocs[j].r_offset, &val, 4);
                 break;
-            case 14: // R_X86_64_8
+            case R_X86_64_8: // R_X86_64_8
                 // handle ABS
                 buf[relocs[j].r_offset] = sec->new_offset + file->symbols[ELF64_R_SYM(relocs[j].r_info)].value + relocs[j].r_addend;
+                break;
+            case R_X86_64_PC32:
+                P = sec->segment->addr + sec->new_offset + relocs[j].r_offset;
+                val = sym.section->segment->addr + sym.section->new_offset + sym.value + relocs[j].r_addend - P;
+                memcpy(buf+relocs[j].r_offset, &val, 4);
                 break;
             default:
                 fprintf(stderr, "Relocation type: %lu\n", ELF64_R_TYPE(relocs[j].r_info));

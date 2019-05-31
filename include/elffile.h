@@ -1,6 +1,7 @@
 #ifndef ELF_FILE_H
 #define ELF_FILE_H
 #include <elf.h>
+#include <stdbool.h>
 #define EXEC_OFFSET 0x100000
 
 typedef struct
@@ -20,6 +21,8 @@ typedef struct
 
 typedef struct
 {
+    bool undef;
+
     char* name;
     uint64_t value;
     uint8_t scope;
@@ -33,6 +36,7 @@ typedef struct
     Symbol* symbols;
     unsigned char* data;
     uint64_t filesize;
+    int symbols_num;
 } ELFFile;
 
 ELFFile file_init(const char* path);
@@ -41,15 +45,4 @@ Section* file_get_section_header(ELFFile* file, const char* name);
 void file_do_relocations(ELFFile* file);
 void file_do_rela(ELFFile* file, int i, char* section);
 
-/* class ELFFile
-{
-public:
-    ELFFile(const char* path);
-    ~ELFFile();
-    void* getSection(const char* name, uint64_t* size);
-    Section* getSectionHeader(const char* name);
-
-private:
-    void doRela(int i, char* section);
-}; */
 #endif
