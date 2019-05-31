@@ -1,9 +1,6 @@
-#include <iostream>
-#include <cstdio>
-#include <cassert>
-#include <cstring>
-#include <map>
-#include <string>
+#include <stdio.h>
+#include <assert.h>
+#include <string.h>
 #include <elf.h>
 
 // #include "elfstruct.h"
@@ -16,11 +13,11 @@ int main(int argc, char** argv)
     assert(argc > 1);
     assert(sizeof(Elf64_Ehdr) == 64);
 
-    ELFFile input(argv[1]);
+    ELFFile input = file_init(argv[1]);
     uint64_t text_size;
-    unsigned char* text = (unsigned char*)input.getSection(".text", &text_size);
+    unsigned char* text = (unsigned char*)file_get_section(&input, ".text", &text_size);
     uint64_t data_size;
-    unsigned char* data = (unsigned char*)input.getSection(".data", &data_size);
+    unsigned char* data = (unsigned char*)file_get_section(&input, ".data", &data_size);
 
     Elf64_Ehdr header;
     memset(&header, 0, sizeof(header));
