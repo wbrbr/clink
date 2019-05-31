@@ -29,35 +29,24 @@ ELFFile file_init(const char* path)
         file.sections[i].name = name;
         file.sections[i].offset = sec->sh_offset;
         file.sections[i].size = sec->sh_size;
+        file.sections[i].segment = NULL;
     }
 
     uint64_t strings_len;
     char* strings = (char*)file_get_section(&file, ".strtab", &strings_len);
-    printf("%lu %s\n", strings_len, &strings[1]);
 
     uint64_t symbols_size;
     Elf64_Sym* symbols_arr = (Elf64_Sym*)file_get_section(&file, ".symtab", &symbols_size);
     uint64_t symbols_num = symbols_size / sizeof(Elf64_Sym);
-    printf("%lu %lu\n", symbols_size, symbols_num);
 
     file.symbols = (Symbol*)malloc(symbols_num*sizeof(Symbol));
 
     for (uint64_t i = 0; i < symbols_num; i++)
     {
         file.symbols[i].name = strings + symbols_arr[i].st_name;
-        file.symbols[i].info = symbols_arr[i].st_info;
         file.symbols[i].value = symbols_arr[i].st_value;
-    }
-
-    for (int i = 0; i < file.header.e_shnum; i++)
-    {
-        if (strlen(file.sections[i].name) >= 5 && file.sections[i].name[0] == '.'
-                                               && file.sections[i].name[1] == 'r'
-                                               && file.sections[i].name[2] == 'e'
-                                               && file.sections[i].name[3] == 'l'
-                                               && file.sections[i].name[4] == 'a') {
-            file_do_rela(&file, i, file.sections[i].name+5);
-        }
+        file.symbols[i].scope = symbols_arr[i].st_info >> 4;
+        file.symbols[i].section = file.sections+symbols_arr[i].st_shndx; // TODO: SHN_ABS
     }
 
     return file;
@@ -93,13 +82,26 @@ Section* file_get_section_header(ELFFile* file, const char* name)
     assert(0);
 }
 
+void file_do_relocations(ELFFile* file)
+{
+    for (int i = 0; i < file->header.e_shnum; i++)
+    {
+        if (strlen(file->sections[i].name) >= 5 && file->sections[i].name[0] == '.'
+                                                && file->sections[i].name[1] == 'r'
+                                                && file->sections[i].name[2] == 'e'
+                                                && file->sections[i].name[3] == 'l'
+                                                && file->sections[i].name[4] == 'a') {
+            file_do_rela(file, i, file->sections[i].name+5);
+        }
+    }
+}
+
 void file_do_rela(ELFFile* file, int i, char* section)
 {
     Elf64_Rela* relocs = (Elf64_Rela*)(file->data + file->sections[i].offset);
     uint64_t num = file->sections[i].size / sizeof(Elf64_Rela);
 
     Section* sec = file_get_section_header(file, section);
-    sec->new_offset = 0x10000+4096;
     unsigned char* buf = (unsigned char*)file_get_section(file, section, NULL);
 
     uint32_t val;
@@ -107,15 +109,19 @@ void file_do_rela(ELFFile* file, int i, char* section)
 
     for (uint64_t j = 0; j < num; j++)
     {
+        Symbol sym = file->symbols[ELF64_R_SYM(relocs[j].r_info)];
+
         switch(ELF64_R_TYPE(relocs[j].r_info)) {
             case 1: // R_X86_64_64
-                val64 = 0x100000+sizeof(Elf64_Ehdr)+2*sizeof(Elf64_Phdr)+8;
+                // printf("Segment: %lx\nSection: %lx\nSymbol: %lx\nAddend: %lx\n", sym.section->segment->addr, sym.section->new_offset, sym.value, relocs[j].r_addend);
+                val64 = sym.section->segment->addr + sym.section->new_offset + sym.value + relocs[j].r_addend;
                 memcpy(buf+relocs[j].r_offset, &val64, 8);
                 break;
             case 11: // R_X86_64_32S
                 // sign extension
-                val = sec->new_offset + file->symbols[ELF64_R_SYM(relocs[j].r_info)].value + relocs[j].r_addend;
-                val = 0x100000+sizeof(Elf64_Ehdr)+2*sizeof(Elf64_Phdr);
+                val = sym.section->segment->addr + sym.section->new_offset + sym.value + relocs[j].r_addend;
+                assert(val == 0x100000+sizeof(Elf64_Ehdr)+2*sizeof(Elf64_Phdr));
+                // val = 0x100000+sizeof(Elf64_Ehdr)+2*sizeof(Elf64_Phdr);
                 memcpy(buf+relocs[j].r_offset, &val, 4);
                 break;
             case 14: // R_X86_64_8
@@ -128,22 +134,3 @@ void file_do_rela(ELFFile* file, int i, char* section)
         }
     }
 }
-
-/* ELFFile::~ELFFile()
-{
-    free(data);
-    free(sections);
-    free(symbols);
-}
-
-void* ELFFile::getSection(const char* name, uint64_t* size)
-{
-}
-
-Section* ELFFile::getSectionHeader(const char* name)
-{
-}
-
-void ELFFile::doRela(int i, char* section)
-{
-} */

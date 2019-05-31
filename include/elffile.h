@@ -1,13 +1,20 @@
 #ifndef ELF_FILE_H
 #define ELF_FILE_H
 #include <elf.h>
+#define EXEC_OFFSET 0x100000
+
+typedef struct
+{
+    uint64_t addr;
+} Segment;
 
 typedef struct
 {
     char* name;
     uint64_t offset;
     uint64_t size;
-
+    
+    Segment* segment;
     uint64_t new_offset;
 } Section;
 
@@ -15,7 +22,8 @@ typedef struct
 {
     char* name;
     uint64_t value;
-    uint8_t info;
+    uint8_t scope;
+    Section* section;
 } Symbol;
 
 typedef struct
@@ -30,6 +38,7 @@ typedef struct
 ELFFile file_init(const char* path);
 void* file_get_section(ELFFile* file, const char* name, uint64_t* size);
 Section* file_get_section_header(ELFFile* file, const char* name);
+void file_do_relocations(ELFFile* file);
 void file_do_rela(ELFFile* file, int i, char* section);
 
 /* class ELFFile
